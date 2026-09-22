@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediaForge · 网页格式工厂（纯浏览器端音视频图片转换）</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --accent: #4f6ef5; --accent-soft: #eaefff;
+    --text: #1c2026; --muted: #6b7280; --border: #e4e7ec; --ok: #16a34a;
+    --warn: #d97706; --danger: #b42318;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.55;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 72px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .logo { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .logo small { color: var(--muted); font-weight: 400; display: block; font-size: 12.5px; margin-top: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; }
+  .pill.off { background: #eef1f5; color: var(--muted); }
+  .pill.on { background: #e4f5e8; color: var(--ok); }
+  .pill.warn { background: #fdf1e3; color: var(--warn); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ddd; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- 标签页 ---- */
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab-btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    padding: 9px 20px; font-size: 14px; border-radius: 10px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; transition: .15s;
+  }
+  .tab-btn .ico { font-size: 17px; }
+  .tab-btn:hover { border-color: var(--accent); }
+  .tab-btn.active { background: var(--accent-soft); border-color: var(--accent); color: #24325f; font-weight: 600; }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  .hidden { display: none; }
+
+  /* ---- 任务选择 ---- */
+  .task-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .task-row .lbl { font-size: 13px; color: var(--muted); }
+  select, input[type=text], input[type=number] {
+    padding: 8px 12px; font-size: 13.5px; border: 1px solid var(--border); border-radius: 8px;
+    background: #fff; outline: none; color: var(--text); min-width: 120px;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+
+  /* ---- 文件投放区 ---- */
+  .drop {
+    border: 2px dashed var(--border); border-radius: 14px; padding: 22px;
+    background: #fafbfd; text-align: center; cursor: pointer; transition: .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop .big { font-size: 34px; }
+  .drop .t { font-size: 14px; font-weight: 600; margin-top: 6px; }
+  .drop .s { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.6; }
+  .drop input[type=file] { display: none; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* ---- 文件列表 ---- */
+  .file-list { margin-top: 10px; }
+  .file-chip {
+    display: flex; align-items: center; gap: 10px; background: #f4f6fb; border: 1px solid var(--border);
+    border-radius: 9px; padding: 8px 12px; font-size: 13px; margin-top: 6px;
+  }
+  .file-chip .ico { font-size: 16px; }
+  .file-chip .name { flex: 1; word-break: break-all; color: var(--text); }
+  .file-chip .size { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
+  .file-chip .up, .file-chip .down, .file-chip .x {
+    border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; padding: 2px 6px;
+  }
+  .file-chip .up:hover, .file-chip .down:hover { color: var(--accent); }
+  .file-chip .x:hover { color: var(--danger); }
+
+  /* ---- 选项区 ---- */
+  .opts { margin-top: 12px; }
+  .opt-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .opt-group .gtitle { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .opt-grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .opt-grid .item { display: flex; flex-direction: column; gap: 2px; }
+  .opt-grid .item label { font-size: 11.5px; color: var(--muted); }
+  .check-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .check-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+  .check-pill input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+  /* ---- 行动区 ---- */
+  .action-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  button.run {
+    border: none; border-radius: 10px; padding: 10px 22px; font-size: 14.5px; font-weight: 600;
+    background: var(--accent); color: #fff; cursor: pointer; transition: .15s;
+  }
+  button.run:hover { opacity: .92; }
+  button.run:disabled { background: #b9c4e8; cursor: not-allowed; }
+  button.ghost { border: 1px solid var(--border); background: #fff; color: var(--text); border-radius: 10px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .prog-wrap { flex: 1; min-width: 200px; }
+  .prog { height: 8px; background: #e7eaef; border-radius: 4px; overflow: hidden; width: 100%; }
+  .prog i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), #7aa2ff); transition: width .25s; }
+  .status { font-size: 12.5px; color: var(--muted); margin-top: 6px; word-break: break-word; }
+  .status.done { color: var(--ok); }
+  .status.err { color: var(--danger); }
+
+  /* ---- 合成页的双投放区 ---- */
+  .mix-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .mix-col .drop { padding: 14px; }
+  .mix-col h4 { font-size: 13.5px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .mix-col .drop .t { font-weight: 600; }
+
+  .loading-banner { display: none; }
+  .tips { font-size: 12.3px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+  .tips b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">MediaForge<small>网页格式工厂 · FFmpeg Web · 全部处理在浏览器本地完成，文件不会上传到任何服务器</small></div>
+    <span id="wasm-pill" class="pill off"><span class="dot"></span><span id="wasm-text">组件未加载</span></span>
+  </header>
+
+  <div id="loading-banner" class="loading-banner"><span class="spinner"></span> 正在后台预热 ffmpeg 组件…（首次约 30MB，之后有缓存）</div>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="video"><span class="ico">🎬</span>视频</button>
+    <button class="tab-btn" data-tab="audio"><span class="ico">🎵</span>音频</button>
+    <button class="tab-btn" data-tab="image"><span class="ico">🖼️</span>图片</button>
+    <button class="tab-btn" data-tab="mix"><span class="ico">🧩</span>合成</button>
+  </nav>
+
+  <!-- ============ 视频 ============ -->
+  <section class="panel" id="tab-video">
+    <div class="task-row">
+      <span class="lbl">功能：</span>
+      <select id="v-task">
+        <option value="transcode">转码 / 压缩（视频）</option>
+        <option value="extract">提取音频（剥离音轨）</option>
+        <option value="concat">拼接多段视频</option>
+        <option value="gif">视频转 GIF 动图</option>
+        <option value="trim">截取片段 / 裁剪时长</option>
+      </select>
+    </div>
+    <div class="drop" id="v-drop">
+      <div class="big">📁</div>
+      <div class="t" id="v-drop-text">点击或拖入视频文件</div>
+      <div class="s">支持 mp4 / mkv / webm / mov / avi / flv 等；多个文件用于「拼接」</div>
+      <input type="file" id="v-file" accept="video/*,.mkv,.webm,.mov,.avi,.flv,.m4v,.ts" multiple>
+    </div>
+    <div class="file-list" id="v-files"></div>
+    <div class="opts" id="v-opts"></div>
+    <div class="action-bar">
+      <button class="run" id="v-run">开始处理</button>
+      <div class="prog-wrap"><div class="prog"><i id="v-prog"></i></div><div class="status" id="v-status">就绪</div></div>
+    </div>
+  </section>
+
+  <!-- ============ 音频 ============ -->
+  <section class="panel hidden" id="tab-audio">
+    <div class="task-row">
+      <span class="lbl">功能：</span>
+      <select id="a-task">
+        <option value="transcode">转码（格式 / 码率等）</option>
+        <option value="concat">合并多段音频</option>
+        <option value="trim">截取片段</option>
+      </select>
+    </div>
+    <div class="drop" id="a-drop">
+      <div class="big">🎵</div>
+      <div class="t" id="a-drop-text">点击或拖入音频/视频文件</div>
+      <div class="s">mp3 / m4a / aac / wav / flac / ogg / opus；也接受视频（自动取音轨）</div>
+      <input type="file" id="a-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.webm,.m4v" multiple>
+    </div>
+    <div class="file-list" id="a-files"></div>
+    <div class="opts" id="a-opts"></div>
+    <div class="action-bar">
+      <button class="run" id="a-run">开始处理</button>
+      <div class="prog-wrap"><div class="prog"><i id="a-prog"></i></div><div class="status" id="a-status">就绪</div></div>
+    </div>
+  </section>
+
+  <!-- ============ 图片 ============ -->
+  <section class="panel hidden" id="tab-image">
+    <div class="drop" id="img-drop">
+      <div class="big">🖼️</div>
+      <div class="t" id="img-drop-text">点击或拖入图片</div>
+      <div class="s">jpg / png / webp / bmp / gif 互转，可调整画质与尺寸</div>
+      <input type="file" id="img-file" accept="image/*,.png,.jpg,.jpeg,.webp,.bmp,.gif" multiple>
+    </div>
+    <div class="file-list" id="img-files"></div>
+    <div class="opts" id="img-opts"></div>
+    <div class="action-bar">
+      <button class="run" id="img-run">开始处理</button>
+      <div class="prog-wrap"><div class="prog"><i id="img-prog"></i></div><div class="status" id="img-status">就绪</div></div>
+    </div>
+  </section>
+
+  <!-- ============ 合成 ============ -->
+  <section class="panel hidden" id="tab-mix">
+    <div class="mix-wrap">
+      <div class="mix-col">
+        <h4>① 视频轨道</h4>
+        <div class="drop" id="mx-v-drop">
+          <div class="big">🎬</div>
+          <div class="t">点击或拖入视频</div>
+          <input type="file" id="mx-v-file" accept="video/*,.mkv,.webm,.mov,.avi,.flv,.ts,.mp4">
+        </div>
+        <div class="file-list" id="mx-v-files"></div>
+      </div>
+      <div class="mix-col">
+        <h4>② 音频轨道</h4>
+        <div class="drop" id="mx-a-drop">
+          <div class="big">🎵</div>
+          <div class="t">点击或拖入音频</div>
+          <input type="file" id="mx-a-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus">
+        </div>
+        <div class="file-list" id="mx-a-files"></div>
+      </div>
+    </div>
+    <div class="opts" id="mx-opts"></div>
+    <div class="action-bar">
+      <button class="run" id="mx-run">合并音视频</button>
+      <div class="prog-wrap"><div class="prog"><i id="mx-prog"></i></div><div class="status" id="mx-status">就绪</div></div>
+    </div>
+    <div class="tips"><b>说明：</b>将一段视频和一段音频合成一个带画面的文件（例如给视频配上自己的解说音轨，或替换片头乐）。以较长者或指定时长为准（-shortest 自动对齐到较短轨道）。</div>
+  </section>
+
+  <div class="tips" style="margin-top:26px">
+    <b>特性：</b>全部转换都在你的浏览器内存里完成（ffmpeg.wasm），文件不出本机。首次使用需加载约 30MB 组件，之后有浏览器缓存。处理大文件时耐心等待进度条即可。支持 <b>视频</b>（转码/压缩、提取音频、拼接、转 GIF、截取）、<b>音频</b>（转码、合并、截取）、<b>图片</b>（格式互转）、<b>合成</b>（音视频合并）。
+  </div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

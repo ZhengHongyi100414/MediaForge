@@ -1,0 +1,18 @@
+{
+  "name": "mediaforge",
+  "version": "1.0.0",
+  "description": "MediaForge — 网页版「格式工厂」：基于 ffmpeg.wasm 的纯浏览器端音视频图片格式转换工具，文件不出本机。",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test:e2e": "node test/runner.mjs e2e.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "puppeteer-core": "^25.11.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
