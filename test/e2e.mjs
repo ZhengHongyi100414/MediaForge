@@ -74,7 +74,6 @@ try {
     // ④ 驱动 UI：视频转码（默认 mp4）
     await page.select('#v-task', 'transcode');
     await page.select('#v-res', '640');
-    await page.select('#v-ae', 'aac');
     await page.click('#v-run');
     await page.waitForFunction(() => {
       const s = document.getElementById('v-status');
