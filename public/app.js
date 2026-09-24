@@ -1,6 +1,6 @@
 // app.js — 网页版「格式工厂」主逻辑
 // 所有处理调用 ffmpeg.wasm 在浏览器本地完成，文件不上传服务器。
-import { preload, runJob, sanitize, triggerDownload } from './ffmpeg.js';
+import { preload, runJob, sanitize, triggerDownload, runParallelSegments } from './ffmpeg.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -129,9 +129,15 @@ function makeRunner(runBtnId, progId, statusId, build) {
       const list = Array.isArray(jobs) ? jobs : [jobs];
       let done = 0;
       for (const job of list) {
-        await runJob(job,
-          (p) => prog.style.width = Math.round(((done + p) / list.length) * 100) + '%',
-          (msg) => { status.textContent = msg; });
+        if (job && job.segmented) {
+          await runParallelSegments(job.segOpts,
+            (p) => prog.style.width = Math.round(((done + (p || 0)) / list.length) * 100) + '%',
+            (msg) => { status.textContent = msg; });
+        } else {
+          await runJob(job,
+            (p) => prog.style.width = Math.round(((done + p) / list.length) * 100) + '%',
+            (msg) => { status.textContent = msg; });
+        }
         done++;
         prog.style.width = Math.round((done / list.length) * 100) + '%';
       }
@@ -171,6 +177,7 @@ function renderVideoOpts() {
         <div class="item"><label>分辨率</label><select id="v-res"><option value="0">原始</option><option value="3840">3840·4K</option><option value="1920">1920·1080</option><option value="1280">1280·720</option><option value="854">854·480</option><option value="640">640·360</option><option value="custom">自定义宽度</option></select></div>
         <div class="item"><label>自定义宽度</label><input id="v-res-c" type="number" value="1280" min="32" step="2"></div>
         <div class="item"><label>帧率</label><select id="v-fps">${fpsOpts({ expert: true })}</select></div>
+        <div class="item"><label>多核加速（实验）</label><select id="v-par"><option value="0">关闭（稳）</option><option value="2">2 核更快</option><option value="4">4 核最快</option></select></div>
       </div></div>
       <div class="opt-group"><span class="gtitle">画质</span><div class="opt-grid">
         <div class="item"><label>模式</label><select id="v-qmode"><option value="crf">CRF（推荐）</option><option value="br">恒定码率</option></select></div>
@@ -254,8 +261,30 @@ async function buildVideoJob() {
     const [file] = items;
     const ext = extOf(file.name), data = await readBytes(file.file);
     const fmt = $('v-fmt').value, def = CONT[fmt];
-    const args = ['-i', `in0.${ext}`];
     const res = $('v-res').value;
+    // 专家模式 + 打开多核加速 + 输出为 mp4 → 分段并行转码（H.264，多核吃满）
+    if (MODE === 'expert' && $('v-par').value !== '0' && fmt === 'mp4') {
+      const n = Number($('v-par').value);
+      const ec = [];
+      if (res === 'custom') ec.push('-vf', `scale=${$('v-res-c').value}:-2`);
+      else if (res !== '0') ec.push('-vf', `scale=${res}:-2`);
+      const fps = $('v-fps').value;
+      if (fps !== '0') ec.push('-r', fps);
+      ec.push('-c:v', 'libx264', '-preset', 'veryfast');
+      if ($('v-qmode').value === 'crf') ec.push('-crf', $('v-crf').value);
+      else ec.push('-b:v', $('v-br').value + 'k');
+      const keep = $('v-keep').value;
+      let withAudio = true;
+      if (keep === 'drop') { ec.push('-an'); withAudio = false; }
+      else {
+        const aeRaw = $('v-ae').value;
+        const ae = aeRaw === 'auto' ? 'aac' : aeRaw;
+        if (keep === 'copy') ec.push('-c:a', 'copy');
+        else ec.push('-c:a', ae, '-b:a', $('v-abr').value + 'k');
+      }
+      return { segmented: true, segOpts: { srcName: `in0.${ext}`, srcData: data, n, encodeArgs: ec, withAudio, outName: `${base}.mp4`, mime: MIME.mp4, label: '多核分段转码' } };
+    }
+    const args = ['-i', `in0.${ext}`];
     if (MODE === 'expert') {
       const veRaw = $('v-ve').value;
       const ve = veRaw === 'auto' ? def.ve : veRaw;

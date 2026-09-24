@@ -88,4 +88,70 @@ export async function runJob(job, onProgress, onPhase) {
   }
 }
 
+// 额外拉起一个新的 FFmpeg 实例（独立 Web Worker / 独立核）
+async function newFFInstance(onPhase) {
+  const f = new FFmpeg();
+  if (onPhase) onPhase('加载多核子组件…');
+  await f.load({ coreURL: CORE_PATH, wasmURL: CORE_WASM });
+  return f;
+}
+
+/**
+ * 分段并行转码（多核加速，实验）：
+ * 按时长切成 o.n 段，用 o.n 个独立 wasm 实例（各占一核）并行编码，
+ * 最后 concat demuxer 无损拼接。产物须为 MP4（H.264）。
+ * @param o {srcName, srcData, n, encodeArgs(不含 -t/-ss/-reset_timestamps/输出名), withAudio, outName, mime}
+ */
+export async function runParallelSegments(o, onProgress, onPhase) {
+  await ensureLoaded(onPhase); // 复用单例做时长探测
+  if (onPhase) onPhase('读取视频时长…');
+  // 注意：writeFile 经 postMessage 传输会 detach 底层 Buffer，故每次必须传独立拷贝（slice）
+  await ffmpeg.writeFile(o.srcName, o.srcData.slice());
+  await ffmpeg.ffprobe(['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', o.srcName, '-o', 'dur.txt']);
+  let total = 0;
+  try {
+    const t = await ffmpeg.readFile('dur.txt');
+    total = parseFloat(String.fromCharCode(...Array.from(t.subarray(0, 40))).trim());
+  } catch { total = 0; }
+  try { await ffmpeg.deleteFile(o.srcName); } catch { /* 忽略 */ }
+  try { await ffmpeg.deleteFile('dur.txt'); } catch { /* 忽略 */ }
+  if (!(total > 0)) throw new Error('读不出视频时长，请关闭多核加速');
+  const segLen = total / o.n;
+
+  if (onPhase) onPhase(`分成 ${o.n} 段并行编码（吃满多核）…`);
+  const insts = [];
+  for (let i = 0; i < o.n; i++) { const f = await newFFInstance(onPhase); await f.writeFile(o.srcName, o.srcData.slice()); insts.push(f); }
+
+  let done = 0;
+  const segBytes = new Array(o.n);
+  await Promise.all(insts.map(async (f, i) => {
+    let args = ['-ss', String(i * segLen), '-i', o.srcName, '-t', String(segLen), ...o.encodeArgs,
+      '-reset_timestamps', '1', '-map', '0:v:0'];
+    if (o.withAudio) args.push('-map', '0:a:0');
+    args.push(`seg${i}.mp4`);
+    const rc = await f.exec(args);
+    if (rc !== 0) throw new Error(`第 ${i + 1} 段编码失败（code ${rc}），请关闭多核加速`);
+    try { segBytes[i] = await f.readFile(`seg${i}.mp4`); } catch { throw new Error(`第 ${i + 1} 段无输出`); }
+    done++;
+    if (onProgress) onProgress((done / o.n) * 0.85);
+  }));
+
+  if (onPhase) onPhase('拼接各段…');
+  const cat = await newFFInstance(onPhase);
+  for (let i = 0; i < o.n; i++) await cat.writeFile(`seg${i}.mp4`, segBytes[i]);
+  await cat.writeFile('list.txt', new TextEncoder().encode(Array.from({ length: o.n }, (_, i) => `file 'seg${i}.mp4'`).join('\n')));
+  const rcC = await cat.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', o.outName]);
+  if (rcC !== 0) throw new Error(`拼接失败（code ${rcC}）`);
+  if (onProgress) onProgress(0.95);
+  const outData = await cat.readFile(o.outName);
+
+  insts.forEach(f => { try { f.terminate(); } catch { /* 忽略 */ } });
+  try { cat.terminate(); } catch { /* 忽略 */ }
+
+  if (onProgress) onProgress(1);
+  triggerDownload(o.outName, outData, o.mime);
+  if (onPhase) onPhase(`✅ 完成「${o.outName}」（${o.n} 段并行），已触发下载。`);
+  return o.outName;
+}
+
 export { sanitize, triggerDownload };
