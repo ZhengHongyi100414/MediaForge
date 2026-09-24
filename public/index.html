@@ -26,6 +26,10 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ddd; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .mode-switch { display: inline-flex; }
+  .mode-btn { border: 1px solid var(--border); background: #fff; color: var(--muted); padding: 6px 14px; font-size: 12.5px; border-radius: 8px; cursor: pointer; transition: .15s; }
+  .mode-btn:hover { border-color: var(--accent); }
+  .mode-btn.active { background: var(--accent-soft); border-color: var(--accent); color: #24325f; font-weight: 600; }
 
   /* ---- 标签页 ---- */
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -119,6 +123,10 @@
 <div class="wrap">
   <header>
     <div class="logo">MediaForge<small>网页格式工厂 · FFmpeg Web · 全部处理在浏览器本地完成，文件不会上传到任何服务器</small></div>
+    <div class="mode-switch" role="group" aria-label="模式切换">
+      <button id="mode-simple" class="mode-btn active">简单模式</button>
+      <button id="mode-expert" class="mode-btn">专家模式</button>
+    </div>
     <span id="wasm-pill" class="pill off"><span class="dot"></span><span id="wasm-text">组件未加载</span></span>
   </header>
 

@@ -44,6 +44,28 @@ const Q_CRF = { high: '18', mid: '23', low: '28' };    // 视频 CRF：越小越
 const Q_ABR = { high: '256', mid: '192', low: '128' }; // 音频码率 kb/s：越大越好、文件越大
 const Q_IMG = { hi: '2', mid: '6', low: '12' };        // 图片 jpg 质量（2 最好）
 
+// ---------- 简单 / 专家模式（localStorage 记住用户偏好） ----------
+let MODE = 'simple';
+const FPS_LIST = ['24', '25', '29.94', '30', '50', '59.97', '60', '120', '144'];
+// expert=true 时帧率额外提供「原始（不改变）」，默认都是 60
+function fpsOpts({ expert }) {
+  const items = [];
+  if (expert) items.push('<option value="0">原始（不改变）</option>');
+  for (const v of FPS_LIST) items.push(`<option value="${v}"${v === '60' ? ' selected' : ''}>${v}</option>`);
+  return items.join('');
+}
+function loadMode() { try { return localStorage.getItem('mediaforge_mode') || 'simple'; } catch { return 'simple'; } }
+function saveMode(m) { try { localStorage.setItem('mediaforge_mode', m); } catch { /* 忽略 */ } }
+function applyModeButtons() {
+  const s = $('mode-simple'), e = $('mode-expert');
+  if (s) s.classList.toggle('active', MODE === 'simple');
+  if (e) e.classList.toggle('active', MODE === 'expert');
+}
+function setMode(m) {
+  MODE = m; saveMode(m); applyModeButtons();
+  renderVideoOpts(); renderAudioOpts(); renderImageOpts(); renderMixOpts();
+}
+
 /* ---------- 文件投放区 ---------- */
 function createZone(inputId, dropId, listId, multiple = true) {
   const input = $(inputId), drop = $(dropId), list = $(listId);
@@ -142,27 +164,68 @@ function renderVideoOpts() {
   const el = $('v-opts');
   const html = [];
   if (t === 'transcode') {
-    html.push(`<div class="opt-group"><span class="gtitle">转换后</span><div class="opt-grid">
-      <div class="item"><label>格式</label><select id="v-fmt"><option value="mp4">MP4（通用，推荐）</option><option value="webm">WebM</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="avi">AVI（老格式）</option></select></div>
-      <div class="item"><label>画质</label><select id="v-quality"><option value="high">高清（文件大）</option><option value="mid" selected>标准（推荐）</option><option value="low">低清（文件小）</option></select></div>
-      <div class="item"><label>分辨率</label><select id="v-res"><option value="0">和原来一样</option><option value="1920">1920×1080（1080P）</option><option value="1280">1280×720（720P）</option><option value="854">854×480（480P）</option><option value="640">640×360（360P）</option></select></div>
-      <div class="item"><label>每秒帧数</label><select id="v-fps"><option value="25">25</option><option value="29.94">29.94</option><option value="30">30</option><option value="50">50</option><option value="59.97">59.97</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option></select></div>
-    </div></div>
-    <div class="opt-group"><span class="gtitle">声音</span><div class="opt-grid">
-      <div class="item"><label>声音</label><select id="v-aud"><option value="keep">保留声音</option><option value="drop">不要声音（纯画面）</option></select></div>
-    </div></div>`);
+    if (MODE === 'expert') {
+      html.push(`<div class="opt-group"><span class="gtitle">转换后（专家）</span><div class="opt-grid">
+        <div class="item"><label>格式</label><select id="v-fmt"><option value="mp4">MP4（通用）</option><option value="webm">WebM</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="avi">AVI</option></select></div>
+        <div class="item"><label>视频编码</label><select id="v-ve"><option value="auto">自动（按格式）</option><option value="libx264">H.264</option><option value="libx265">H.265/HEVC</option><option value="libvpx-vp9">VP9</option><option value="libvpx-vp8">VP8</option></select></div>
+        <div class="item"><label>分辨率</label><select id="v-res"><option value="0">原始</option><option value="3840">3840·4K</option><option value="1920">1920·1080</option><option value="1280">1280·720</option><option value="854">854·480</option><option value="640">640·360</option><option value="custom">自定义宽度</option></select></div>
+        <div class="item"><label>自定义宽度</label><input id="v-res-c" type="number" value="1280" min="32" step="2"></div>
+        <div class="item"><label>帧率</label><select id="v-fps">${fpsOpts({ expert: true })}</select></div>
+      </div></div>
+      <div class="opt-group"><span class="gtitle">画质</span><div class="opt-grid">
+        <div class="item"><label>模式</label><select id="v-qmode"><option value="crf">CRF（推荐）</option><option value="br">恒定码率</option></select></div>
+        <div class="item"><label>CRF 值（0-51 越小越清晰）</label><input id="v-crf" type="number" value="23" min="0" max="51"></div>
+        <div class="item"><label>码率 kb/s</label><input id="v-br" type="number" value="2000" min="64"></div>
+      </div></div>
+      <div class="opt-group"><span class="gtitle">音频</span><div class="opt-grid">
+        <div class="item"><label>处理</label><select id="v-keep"><option value="keep">保留</option><option value="drop">移除</option><option value="copy">拷原音轨</option></select></div>
+        <div class="item"><label>音频编码</label><select id="v-ae"><option value="auto">自动</option><option value="aac">AAC</option><option value="libmp3lame">MP3</option><option value="libopus">Opus</option><option value="libvorbis">Vorbis</option></select></div>
+        <div class="item"><label>音频码率 kb/s</label><input id="v-abr" type="number" value="192" min="32"></div>
+      </div></div>`);
+    } else {
+      html.push(`<div class="opt-group"><span class="gtitle">转换后</span><div class="opt-grid">
+        <div class="item"><label>格式</label><select id="v-fmt"><option value="mp4">MP4（通用，推荐）</option><option value="webm">WebM</option><option value="mkv">MKV</option><option value="mov">MOV</option><option value="avi">AVI（老格式）</option></select></div>
+        <div class="item"><label>画质</label><select id="v-quality"><option value="high">高清（文件大）</option><option value="mid" selected>标准（推荐）</option><option value="low">低清（文件小）</option></select></div>
+        <div class="item"><label>分辨率</label><select id="v-res"><option value="0">和原来一样</option><option value="1920">1920×1080（1080P）</option><option value="1280">1280×720（720P）</option><option value="854">854×480（480P）</option><option value="640">640×360（360P）</option></select></div>
+        <div class="item"><label>每秒帧数</label><select id="v-fps">${fpsOpts({ expert: false })}</select></div>
+      </div></div>
+      <div class="opt-group"><span class="gtitle">声音</span><div class="opt-grid">
+        <div class="item"><label>声音</label><select id="v-aud"><option value="keep">保留声音</option><option value="drop">不要声音（纯画面）</option></select></div>
+      </div></div>`);
+    }
   } else if (t === 'extract') {
-    html.push(`<div class="opt-group"><span class="gtitle">输出音频</span><div class="opt-grid">
-      <div class="item"><label>格式</label><select id="v-afmt"><option value="mp3">MP3</option><option value="m4a">M4A/AAC</option><option value="wav">WAV（无损大）</option><option value="flac">FLAC（无损）</option><option value="ogg">OGG</option><option value="opus">Opus</option></select></div>
-      <div class="item"><label>音质</label><select id="v-aqual"><option value="high">好（文件大）</option><option value="mid" selected>中等（推荐）</option><option value="low">一般（文件小）</option></select></div>
-    </div></div>`);
+    if (MODE === 'expert') {
+      html.push(`<div class="opt-group"><span class="gtitle">输出音频（专家）</span><div class="opt-grid">
+        <div class="item"><label>格式</label><select id="v-afmt"><option value="mp3">MP3</option><option value="m4a">M4A/AAC</option><option value="wav">WAV</option><option value="flac">FLAC</option><option value="ogg">OGG</option><option value="opus">Opus</option></select></div>
+        <div class="item"><label>码率 kb/s</label><input id="v-abr" type="number" value="192" min="32"></div>
+        <div class="item"><label>采样率 Hz</label><select id="v-ar"><option value="0">原始</option><option value="48000">48000</option><option value="44100">44100</option><option value="22050">22050</option></select></div>
+        <div class="item"><label>声道</label><select id="v-ac"><option value="0">原始</option><option value="2">立体声</option><option value="1">单声道</option></select></div>
+      </div></div>`);
+    } else {
+      html.push(`<div class="opt-group"><span class="gtitle">输出音频</span><div class="opt-grid">
+        <div class="item"><label>格式</label><select id="v-afmt"><option value="mp3">MP3</option><option value="m4a">M4A/AAC</option><option value="wav">WAV（无损大）</option><option value="flac">FLAC（无损）</option><option value="ogg">OGG</option><option value="opus">Opus</option></select></div>
+        <div class="item"><label>音质</label><select id="v-aqual"><option value="high">好（文件大）</option><option value="mid" selected>中等（推荐）</option><option value="low">一般（文件小）</option></select></div>
+      </div></div>`);
+    }
   } else if (t === 'concat') {
-    html.push(`<div class="opt-group"><span class="gtitle">拼接方式</span><div class="opt-grid">
-      <div class="item"><label>方式</label><select id="v-concat-method"><option value="reencode">转码拼接（推荐，不同片段也行）</option><option value="copy">快速复制（各段编码必须一致）</option></select></div>
-      <div class="item"><label>输出格式</label><select id="v-fmt"><option value="mp4">MP4</option><option value="webm">WebM</option><option value="mkv">MKV</option></select></div>
-      <div class="item"><label>画质</label><select id="v-quality"><option value="high">高清</option><option value="mid" selected>标准（推荐）</option><option value="low">低清</option></select></div>
-    </div></div>
-    <div class="tips">拖入 2 个及以上视频，顺序即拼接顺序（用 ↑↓ 调整）。「转码拼接」对分辨率/编码不同的片段也适用；若各段是从同一源切出来的、编码完全一致，可选「快速复制」。</div>`);
+    if (MODE === 'expert') {
+      html.push(`<div class="opt-group"><span class="gtitle">拼接方式（专家）</span><div class="opt-grid">
+        <div class="item"><label>方式</label><select id="v-concat-method"><option value="reencode">转码拼接</option><option value="copy">快速复制</option></select></div>
+        <div class="item"><label>输出格式</label><select id="v-fmt"><option value="mp4">MP4</option><option value="webm">WebM</option><option value="mkv">MKV</option></select></div>
+        <div class="item"><label>视频编码</label><select id="v-ve"><option value="libx264">H.264</option><option value="libx265">H.265</option><option value="libvpx-vp9">VP9</option></select></div>
+        <div class="item"><label>CRF</label><input id="v-crf" type="number" value="23" min="0" max="51"></div>
+        <div class="item"><label>音频编码</label><select id="v-ae"><option value="aac">AAC</option><option value="libopus">Opus</option></select></div>
+        <div class="item"><label>音频码率 kb/s</label><input id="v-abr" type="number" value="192" min="32"></div>
+      </div></div>
+      <div class="tips">拖入 2 个及以上视频，用 ↑↓ 调整顺序。「快速复制」要求各段编码一致。</div>`);
+    } else {
+      html.push(`<div class="opt-group"><span class="gtitle">拼接方式</span><div class="opt-grid">
+        <div class="item"><label>方式</label><select id="v-concat-method"><option value="reencode">转码拼接（推荐，不同片段也行）</option><option value="copy">快速复制（各段编码必须一致）</option></select></div>
+        <div class="item"><label>输出格式</label><select id="v-fmt"><option value="mp4">MP4</option><option value="webm">WebM</option><option value="mkv">MKV</option></select></div>
+        <div class="item"><label>画质</label><select id="v-quality"><option value="high">高清</option><option value="mid" selected>标准（推荐）</option><option value="low">低清</option></select></div>
+      </div></div>
+      <div class="tips">拖入 2 个及以上视频，顺序即拼接顺序（用 ↑↓ 调整）。「转码拼接」对不同片段也适用；「快速复制」要求编码一致。</div>`);
+    }
   } else if (t === 'gif') {
     html.push(`<div class="opt-group"><span class="gtitle">GIF 参数</span><div class="opt-grid">
       <div class="item"><label>宽度像素</label><input id="v-gif-w" type="number" value="480" min="64" step="16"></div>
@@ -191,16 +254,35 @@ async function buildVideoJob() {
     const [file] = items;
     const ext = extOf(file.name), data = await readBytes(file.file);
     const fmt = $('v-fmt').value, def = CONT[fmt];
-    const ve = def.ve;
     const args = ['-i', `in0.${ext}`];
     const res = $('v-res').value;
-    if (res !== '0') args.push('-vf', `scale=${res}:-2`);
-    args.push('-r', $('v-fps').value);
-    args.push('-c:v', ve);
-    if (ve.startsWith('libx26')) args.push('-preset', 'veryfast');
-    args.push('-crf', Q_CRF[$('v-quality').value]);
-    if ($('v-aud').value === 'drop') args.push('-an');
-    else args.push('-c:a', def.ae, '-b:a', '160k');
+    if (MODE === 'expert') {
+      const veRaw = $('v-ve').value;
+      const ve = veRaw === 'auto' ? def.ve : veRaw;
+      if (res === 'custom') args.push('-vf', `scale=${$('v-res-c').value}:-2`);
+      else if (res !== '0') args.push('-vf', `scale=${res}:-2`);
+      const fps = $('v-fps').value;
+      if (fps !== '0') args.push('-r', fps);
+      args.push('-c:v', ve);
+      if (ve.startsWith('libx26')) args.push('-preset', 'veryfast');
+      if ($('v-qmode').value === 'crf') args.push('-crf', $('v-crf').value);
+      else args.push('-b:v', $('v-br').value + 'k');
+      const keep = $('v-keep').value;
+      if (keep === 'drop') args.push('-an');
+      else {
+        const aeRaw = $('v-ae').value;
+        const ae = aeRaw === 'auto' ? def.ae : aeRaw;
+        if (keep === 'copy') args.push('-c:a', 'copy');
+        else args.push('-c:a', ae, '-b:a', $('v-abr').value + 'k');
+      }
+    } else {
+      if (res !== '0') args.push('-vf', `scale=${res}:-2`);
+      args.push('-r', $('v-fps').value, '-c:v', def.ve);
+      if (def.ve.startsWith('libx26')) args.push('-preset', 'veryfast');
+      args.push('-crf', Q_CRF[$('v-quality').value]);
+      if ($('v-aud').value === 'drop') args.push('-an');
+      else args.push('-c:a', def.ae, '-b:a', '160k');
+    }
     if (fmt === 'mp4' || fmt === 'mov') args.push('-movflags', '+faststart');
     const out = `${base}.${fmt}`;
     return makeJob([{ name: `in0.${ext}`, data }], args, out, MIME[fmt], '转码');
@@ -212,7 +294,13 @@ async function buildVideoJob() {
     const fmt = $('v-afmt').value;
     const enc = { mp3: 'libmp3lame', m4a: 'aac', wav: 'pcm_s16le', flac: 'flac', ogg: 'libvorbis', opus: 'libopus' }[fmt];
     const args = ['-i', `in0.${ext}`, '-vn', '-c:a', enc];
-    if (fmt !== 'wav' && fmt !== 'flac') args.push('-b:a', Q_ABR[$('v-aqual').value] + 'k');
+    if (fmt !== 'wav' && fmt !== 'flac') {
+      args.push('-b:a', (MODE === 'expert' ? $('v-abr').value : Q_ABR[$('v-aqual').value]) + 'k');
+    }
+    if (MODE === 'expert') {
+      if ($('v-ar').value !== '0') args.push('-ar', $('v-ar').value);
+      if ($('v-ac').value !== '0') args.push('-ac', $('v-ac').value);
+    }
     const out = `${base}.${fmt}`;
     return makeJob([{ name: `in0.${ext}`, data }], args, out, MIME[fmt], '剥离音频');
   }
@@ -234,7 +322,8 @@ async function buildVideoJob() {
       if (fmt === 'mp4') args.push('-movflags', '+faststart');
       out = `${base}_concat.${fmt}`; label = '快速拼接';
     } else {
-      const ve = CONT[fmt].ve, ae = CONT[fmt].ae;
+      const ve = MODE === 'expert' ? $('v-ve').value : CONT[fmt].ve;
+      const ae = MODE === 'expert' ? $('v-ae').value : CONT[fmt].ae;
       let filter;
       if (n === 2) filter = `[0:v:0][0:a:0][1:v:0][1:a:0]concat=n=2:v=1:a=1[vout][aout]`;
       else {
@@ -244,8 +333,9 @@ async function buildVideoJob() {
       }
       args = [...inputs.map((p) => ['-i', p]).flat(),
         '-filter_complex', filter, '-map', '[vout]', '-map', '[aout]',
-        '-c:v', ve, '-crf', Q_CRF[$('v-quality').value],
-        '-c:a', ae, '-b:a', '160k'];
+        '-c:v', ve];
+      if (MODE === 'expert') args.push('-crf', $('v-crf').value, '-c:a', ae, '-b:a', $('v-abr').value + 'k');
+      else args.push('-crf', Q_CRF[$('v-quality').value], '-c:a', ae, '-b:a', '160k');
       if (ve.startsWith('libx26')) args.push('-preset', 'veryfast');
       if (fmt === 'mp4' || fmt === 'mov') args.push('-movflags', '+faststart');
       out = `${base}_concat.${fmt}`; label = '转码拼接';
@@ -288,9 +378,15 @@ function renderAudioOpts() {
   const el = $('a-opts');
   const fmtOpts = Object.keys(AOUT).map((f) => `<option value="${f}">${f.toUpperCase()}</option>`).join('');
   let h = `<div class="opt-group"><span class="gtitle">输出</span><div class="opt-grid">
-    <div class="item"><label>格式</label><select id="a-fmt">${fmtOpts}</select></div>
-    <div class="item"><label>音质</label><select id="a-quality"><option value="high">好（文件大）</option><option value="mid" selected>中等（推荐）</option><option value="low">一般（文件小）</option></select></div>
-  </div></div>`;
+    <div class="item"><label>格式</label><select id="a-fmt">${fmtOpts}</select></div>`;
+  if (MODE === 'expert') {
+    h += `<div class="item"><label>码率 kb/s（无损无效）</label><input id="a-br" type="number" value="192" min="32"></div>
+    <div class="item"><label>采样率 Hz</label><select id="a-ar"><option value="0">原始</option><option value="48000">48000</option><option value="44100">44100</option><option value="22050">22050</option></select></div>
+    <div class="item"><label>声道</label><select id="a-ac"><option value="0">原始</option><option value="2">立体声</option><option value="1">单声道</option></select></div>`;
+  } else {
+    h += `<div class="item"><label>音质</label><select id="a-quality"><option value="high">好（文件大）</option><option value="mid" selected>中等（推荐）</option><option value="low">一般（文件小）</option></select></div>`;
+  }
+  h += `</div></div>`;
   if (t === 'trim') {
     h += `<div class="opt-group"><span class="gtitle">截取范围（秒，支持 1:30 或 90）</span><div class="opt-grid">
       <div class="item"><label>开始时间</label><input id="a-ss" type="text" value="0"></div>
@@ -321,7 +417,7 @@ async function buildAudioJob() {
     for (let i = 2; i < items.length; i++) filter += `[${i}:a]`;
     filter += `concat=n=${items.length}:v=0:a=1[aout]`;
     let args = [...inputs.map((p) => ['-i', p]).flat(), '-filter_complex', filter, '-map', '[aout]', '-c:a', codec];
-    if (fmt !== 'wav' && fmt !== 'flac') args.push('-b:a', Q_ABR[$('a-quality').value] + 'k');
+    if (fmt !== 'wav' && fmt !== 'flac') args.push('-b:a', (MODE === 'expert' ? $('a-br').value : Q_ABR[$('a-quality').value]) + 'k');
     const out = `${base}_merge.${fext}`;
     return makeJob(files, args, out, MIME[fmt], '合并音频');
   }
@@ -336,7 +432,11 @@ async function buildAudioJob() {
     args = ['-ss', String(ss), '-t', String(dur), '-i', `in0.${ext}`];
   }
   args.push('-vn', '-c:a', codec);
-  if (fmt !== 'wav' && fmt !== 'flac') args.push('-b:a', Q_ABR[$('a-quality').value] + 'k');
+  if (fmt !== 'wav' && fmt !== 'flac') args.push('-b:a', (MODE === 'expert' ? $('a-br').value : Q_ABR[$('a-quality').value]) + 'k');
+  if (MODE === 'expert') {
+    if ($('a-ar').value !== '0') args.push('-ar', $('a-ar').value);
+    if ($('a-ac').value !== '0') args.push('-ac', $('a-ac').value);
+  }
   const suffix = t === 'trim' ? '_cut' : '_out';
   const out = `${base}${suffix}.${fext}`;
   return makeJob([{ name: `in0.${ext}`, data }], args, out, MIME[fmt] || 'audio/mpeg', '转音频');
@@ -346,10 +446,15 @@ async function buildAudioJob() {
 const imgZone = createZone('img-file', 'img-drop', 'img-files', true);
 const IMG_EXT = { png: 'png', jpg: 'jpg', webp: 'webp', bmp: 'bmp' };
 function renderImageOpts() {
+  const sizeOpts = MODE === 'expert'
+    ? `<option value="0">原始</option><option value="50">缩放 50%</option><option value="75">缩放 75%</option><option value="custom">自定义宽度</option>`
+    : `<option value="0">和原来一样</option><option value="50">缩小到 50%</option><option value="25">缩小到 25%</option>`;
+  const customW = MODE === 'expert' ? `<div class="item"><label>宽度（按比例）</label><input id="img-w" type="number" value="1280" min="16"></div>` : '';
   $('img-opts').innerHTML = `<div class="opt-group"><span class="gtitle">输出</span><div class="opt-grid">
     <div class="item"><label>格式</label><select id="img-fmt"><option value="png">PNG（无损）</option><option value="jpg">JPG（有损）</option><option value="webp">WebP</option><option value="bmp">BMP（无损大）</option></select></div>
     <div class="item"><label>画质（仅 JPG/WebP）</label><select id="img-q"><option value="hi" selected>高</option><option value="mid">中</option><option value="low">低</option></select></div>
-    <div class="item"><label>尺寸</label><select id="img-size"><option value="0">和原来一样</option><option value="50">缩小到 50%</option><option value="25">缩小到 25%</option></select></div>
+    <div class="item"><label>尺寸</label><select id="img-size">${sizeOpts}</select></div>
+    ${customW}
   </div></div>`;
 }
 async function buildImageJobs() {
@@ -362,7 +467,8 @@ async function buildImageJobs() {
   for (const it of items) {
     const ext = extOf(it.name), data = await readBytes(it.file);
     const args = ['-i', `in.${ext}`];
-    if (sz !== '0') args.push('-vf', `scale=iw*${sz / 100}:-1`);
+    if (sz === 'custom' && MODE === 'expert') args.push('-vf', `scale=${$('img-w').value}:-1`);
+    else if (sz !== '0') args.push('-vf', `scale=iw*${sz / 100}:-1`);
     if (fmt === 'jpg') args.push('-q:v', q);
     if (fmt === 'webp') args.push('-q:v', q === '2' ? '90' : (q === '6' ? '70' : '45'));
     const out = `${sanitize(it.name)}.${fmt}`;
@@ -427,6 +533,12 @@ function init() {
   // 视频任务下拉 → 渲染选项
   $('v-task').addEventListener('change', () => { renderVideoOpts(); $('v-status').textContent = '就绪'; });
   $('a-task').addEventListener('change', () => { renderAudioOpts(); $('a-status').textContent = '就绪'; });
+
+  // 简单/专家模式：先读 localStorage 记住的偏好，再渲染选项；切换按钮会写回偏好
+  MODE = loadMode();
+  $('mode-simple').addEventListener('click', () => setMode('simple'));
+  $('mode-expert').addEventListener('click', () => setMode('expert'));
+  applyModeButtons();
   renderVideoOpts(); renderAudioOpts(); renderImageOpts(); renderMixOpts();
 
   // 运行按钮
